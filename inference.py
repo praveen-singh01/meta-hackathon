@@ -26,7 +26,7 @@ from models import Action, ActionType, Observation
 from scenarios import SCENARIOS
 
 try:
-    import google.generativeai as genai
+    from google import genai
     HAS_GENAI = True
 except ImportError:
     HAS_GENAI = False
@@ -201,21 +201,36 @@ def run_task(
 
         print(f"  Step {obs.step_number + 1}: Querying LLM ({MODEL_NAME})...", flush=True)
         
-        if "google" in API_BASE_URL or API_BASE_URL == "gemini":
-            # Use Gemini SDK
+        if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
+            # Use New Gemini SDK (google-genai)
             if not HAS_GENAI:
-                raise ImportError("google-generativeai not installed.")
-            genai.configure(api_key=API_KEY)
-            model = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-                system_instruction=SYSTEM_PROMPT
-            )
-            # Use the latest user prompt for Gemini's generate_content
-            response_gen = model.generate_content(
-                user_prompt,
-                generation_config={"temperature": 0.0}
-            )
-            assistant_msg = response_gen.text
+                raise ImportError("google-genai not installed.")
+            client_gen = genai.Client(api_key=API_KEY)
+            
+            try:
+                response_gen = client_gen.models.generate_content(
+                    model=MODEL_NAME,
+                    contents=user_prompt,
+                    config=genai.types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        temperature=0.0
+                    )
+                )
+                assistant_msg = response_gen.text
+            except Exception as e:
+                if "404" in str(e):
+                    print(f"  ⚠ 404 error for {MODEL_NAME}. Trying gemini-1.5-flash-latest...")
+                    response_gen = client_gen.models.generate_content(
+                        model="gemini-1.5-flash-latest",
+                        contents=user_prompt,
+                        config=genai.types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            temperature=0.0
+                        )
+                    )
+                    assistant_msg = response_gen.text
+                else:
+                    raise e
         else:
             # Use OpenAI client
             response_openai = client.chat.completions.create(
@@ -266,7 +281,7 @@ def main() -> None:
             time.sleep(3600)
 
     client = None
-    if not ("google" in API_BASE_URL or API_BASE_URL == "gemini"):
+    if not ("google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini"):
         from openai import OpenAI
         client = OpenAI(
             base_url=API_BASE_URL,
