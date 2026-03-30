@@ -218,17 +218,55 @@ def run_task(
                 )
                 assistant_msg = response_gen.text
             except Exception as e:
-                if "404" in str(e):
-                    print(f"  ⚠ 404 error for {MODEL_NAME}. Trying gemini-1.5-flash-latest...")
-                    response_gen = client_gen.models.generate_content(
-                        model="gemini-1.5-flash-latest",
-                        contents=user_prompt,
-                        config=genai.types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            temperature=0.0
-                        )
-                    )
-                    assistant_msg = response_gen.text
+                err_str = str(e).lower()
+                if "404" in err_str or "not_found" in err_str:
+                    print(f"  ⚠ Model {MODEL_NAME} not found. Discovering available models...")
+                    try:
+                        available_models = list(client_gen.models.list())
+                        model_names = [m.name for m in available_models]
+                        print(f"  INFO: Available models: {model_names}")
+                        
+                        # Find best fallback: 1.5-flash, then any flash, then anything
+                        fallback = None
+                        # Check names like 'models/gemini-1.5-flash'
+                        for name in model_names:
+                            clean_name = name.split('/')[-1]
+                            if "1.5" in clean_name and "flash" in clean_name:
+                                fallback = clean_name
+                                break
+                        if not fallback:
+                            for name in model_names:
+                                clean_name = name.split('/')[-1]
+                                if "flash" in clean_name:
+                                    fallback = clean_name
+                                    break
+                        
+                        if fallback and fallback != MODEL_NAME:
+                            print(f"  Attempting fallback to Discoverd Model: {fallback}")
+                            response_gen = client_gen.models.generate_content(
+                                model=fallback,
+                                contents=user_prompt,
+                                config=genai.types.GenerateContentConfig(
+                                    system_instruction=SYSTEM_PROMPT,
+                                    temperature=0.0
+                                )
+                            )
+                            assistant_msg = response_gen.text
+                        else:
+                            # Try one last hardcoded guess if listing failed or didn't help
+                            print("  Attempting last-resort fallback to gemini-1.5-flash-8b...")
+                            response_gen = client_gen.models.generate_content(
+                                model="gemini-1.5-flash-8b",
+                                contents=user_prompt,
+                                config=genai.types.GenerateContentConfig(
+                                    system_instruction=SYSTEM_PROMPT,
+                                    temperature=0.0
+                                )
+                            )
+                            assistant_msg = response_gen.text
+                    except Exception as inner_e:
+                        print(f"  ❌ Fallback discovery failed: {inner_e}")
+                        raise e
                 else:
                     raise e
         else:
