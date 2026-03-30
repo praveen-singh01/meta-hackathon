@@ -176,7 +176,7 @@ def run_task(
         
         # V6 Hardened Query Logic with Retry & Rate-Limit Handling
         assistant_msg = ""
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
                     if not HAS_GENAI:
@@ -190,7 +190,7 @@ def run_task(
                             temperature=0.0
                         )
                     )
-                    assistant_msg = response_gen.text
+                    assistant_msg = response_gen.text or ""
                 else:
                     response_openai = client.chat.completions.create(
                         model=MODEL_NAME,
@@ -200,12 +200,14 @@ def run_task(
                         timeout=45.0,
                     )
                     assistant_msg = response_openai.choices[0].message.content or ""
-                break # Success
+                
+                if assistant_msg.strip():
+                    break # Success
             except Exception as e:
                 err_str = str(e).lower()
                 if "429" in err_str or "quota" in err_str or "limit" in err_str:
-                    wait_time = 20
-                    print(f"  ⚠ Rate limited (429). Sleeping for {wait_time}s (Attempt {attempt+1}/3)...")
+                    wait_time = 30
+                    print(f"  ⚠ Rate limited (429). Sleeping for {wait_time}s (Attempt {attempt+1}/5)...")
                     time.sleep(wait_time)
                 elif "404" in err_str or "not_found" in err_str:
                     # Specific fallbacks identified in diagnostic
@@ -285,8 +287,11 @@ def main() -> None:
     results: list[dict[str, Any]] = []
     task_ids = list(SCENARIOS.keys())
 
-    for task_id in task_ids:
+    for i, task_id in enumerate(task_ids):
         try:
+            if i > 0:
+                print(f"INFO: Cooling down for 35s to reset 5 RPM quota...", flush=True)
+                time.sleep(35)
             result = run_task(client, CustomerSupportEnv(), task_id)
             results.append(result)
         except Exception as exc:  # noqa: BLE001
