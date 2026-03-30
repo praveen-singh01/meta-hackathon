@@ -338,7 +338,13 @@ class CustomerSupportEnv:
         self, action: Action, obs: Observation,
         scenario: Scenario, feedback: list[str],
     ) -> None:
-        question = action.payload.get("question", "")
+        # Support both 'question' (str) and 'questions' (list[str])
+        question_data = action.payload.get("questions") or action.payload.get("question", "")
+        if isinstance(question_data, list):
+            question = "\n".join(question_data)
+        else:
+            question = str(question_data)
+
         self._clarification_count += 1
         self._clarification_questions.append(question)
 
@@ -388,7 +394,8 @@ class CustomerSupportEnv:
         self, action: Action, obs: Observation,
         scenario: Scenario, feedback: list[str],
     ) -> None:
-        solution = action.payload.get("solution", "")
+        # Support both 'solution' (str) and 'message' (str)
+        solution = action.payload.get("message") or action.payload.get("solution", "")
         steps = action.payload.get("steps", [])
 
         obs.conversation_history.append(
