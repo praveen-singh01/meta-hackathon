@@ -182,15 +182,28 @@ def run_task(
                     if not HAS_GENAI:
                         raise ImportError("google-genai not installed.")
                     client_gen = genai.Client(api_key=API_KEY)
-                    response_gen = client_gen.models.generate_content(
-                        model=MODEL_NAME,
-                        contents=user_prompt,
-                        config=genai.types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            temperature=0.0
+                    try:
+                        response_gen = client_gen.models.generate_content(
+                            model=MODEL_NAME,
+                            contents=user_prompt,
+                            config=genai.types.GenerateContentConfig(
+                                system_instruction=SYSTEM_PROMPT,
+                                temperature=0.0
+                            )
                         )
-                    )
-                    assistant_msg = response_gen.text or ""
+                        assistant_msg = response_gen.text or ""
+                    except Exception as sys_e:
+                        if "instruction" in str(sys_e).lower():
+                            # Fallback: Prepend system prompt to user prompt
+                            combined_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+                            response_gen = client_gen.models.generate_content(
+                                model=MODEL_NAME,
+                                contents=combined_prompt,
+                                config=genai.types.GenerateContentConfig(temperature=0.0)
+                            )
+                            assistant_msg = response_gen.text or ""
+                        else:
+                            raise sys_e
                 else:
                     response_openai = client.chat.completions.create(
                         model=MODEL_NAME,
@@ -219,11 +232,19 @@ def run_task(
                         print(f"  Attempting fallback to: {alt_model}...")
                         try:
                             if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
-                                response_gen = client_gen.models.generate_content(
-                                    model=alt_model,
-                                    contents=user_prompt,
-                                    config=genai.types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.0)
-                                )
+                                try:
+                                    response_gen = client_gen.models.generate_content(
+                                        model=alt_model,
+                                        contents=user_prompt,
+                                        config=genai.types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.0)
+                                    )
+                                except:
+                                    # Fallback for Gemma/etc
+                                    response_gen = client_gen.models.generate_content(
+                                        model=alt_model,
+                                        contents=f"{SYSTEM_PROMPT}\n\n{user_prompt}",
+                                        config=genai.types.GenerateContentConfig(temperature=0.0)
+                                    )
                                 assistant_msg = response_gen.text
                                 success = True
                                 break
