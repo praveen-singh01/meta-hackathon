@@ -35,9 +35,9 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Use Gemini 2.0 Flash (verified available in diagnostic)
+# Use Gemma 3 4B (Ultra-lightweight, high-speed verified model)
 API_BASE_URL = os.environ.get("API_BASE_URL", "google-gemini")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.0-flash")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemma-3-4b-it")
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
 
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
@@ -206,8 +206,8 @@ def run_task(
             except Exception as e:
                 err_str = str(e).lower()
                 if "429" in err_str or "quota" in err_str or "limit" in err_str:
-                    wait_time = 30
-                    print(f"  ⚠ Rate limited (429). Sleeping for {wait_time}s (Attempt {attempt+1}/5)...")
+                    wait_time = 5
+                    print(f"  ⚠ Rate limited (429). Fast-retry in {wait_time}s (Attempt {attempt+1}/5)...")
                     time.sleep(wait_time)
                 elif "404" in err_str or "not_found" in err_str:
                     # Specific fallbacks identified in diagnostic
@@ -234,8 +234,8 @@ def run_task(
                 else:
                     raise e
         
-        # Preservation sleep to stay under 5 RPM limit
-        time.sleep(2)
+        # Minimal delay to respect shared infrastructure
+        time.sleep(0.5)
             
         messages.append({"role": "assistant", "content": assistant_msg})
         print(f"\n  Step {obs.step_number + 1}: LLM → {assistant_msg[:120]}...")
@@ -289,9 +289,6 @@ def main() -> None:
 
     for i, task_id in enumerate(task_ids):
         try:
-            if i > 0:
-                print(f"INFO: Cooling down for 35s to reset 5 RPM quota...", flush=True)
-                time.sleep(35)
             result = run_task(client, CustomerSupportEnv(), task_id)
             results.append(result)
         except Exception as exc:  # noqa: BLE001
