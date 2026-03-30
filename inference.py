@@ -182,12 +182,17 @@ def run_task(
 
 def main() -> None:
     """Entry point: run all tasks and print aggregate results."""
-    if not HF_TOKEN and "openai" not in API_BASE_URL.lower():
-        print("WARNING: HF_TOKEN not set. API calls may fail.", file=sys.stderr)
+    if not HF_TOKEN:
+        print("ERROR: HF_TOKEN environment variable is not set.", file=sys.stderr)
+        print("Please add your Hugging Face token as a 'Secret' in your Space settings.", file=sys.stderr)
+        # Keep the process alive so the user can see the logs in HF Spaces
+        import time
+        while True:
+            time.sleep(3600)
 
     client = OpenAI(
         base_url=API_BASE_URL,
-        api_key=HF_TOKEN or "dummy",
+        api_key=HF_TOKEN,
     )
 
     results: list[dict[str, Any]] = []
@@ -214,6 +219,13 @@ def main() -> None:
     avg = total / len(results) if results else 0.0
     print(f"\n  Average score: {avg:.4f}")
     print(f"{'='*60}\n")
+
+
+    # Keep the process alive after completion so the Space doesn't restart
+    print("\nSimulation complete. Keeping process alive for log viewing...")
+    import time
+    while True:
+        time.sleep(3600)
 
 
 if __name__ == "__main__":
