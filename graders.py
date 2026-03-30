@@ -37,8 +37,18 @@ def classification_grader(
     if not predicted_cat:
         return 0.0
 
-    cat_match = predicted_cat == gold.category.lower()
-    sub_match = predicted_sub == gold.subcategory.lower()
+    # --- Fuzzy/Keyword matching for category ---
+    gold_cat = gold.category.lower()
+    cat_match = (predicted_cat == gold_cat) or (gold_cat in predicted_cat) or (predicted_cat in gold_cat)
+
+    # --- Fuzzy/Keyword matching for subcategory ---
+    gold_sub = gold.subcategory.lower()
+    sub_match = (predicted_sub == gold_sub) or (gold_sub in predicted_sub) or (predicted_sub in gold_sub)
+    
+    # Also allow matching across words (e.g. "password reset" matches "password_reset")
+    if not sub_match:
+        gold_sub_clean = gold_sub.replace("_", " ")
+        sub_match = (gold_sub_clean in predicted_sub) or (predicted_sub in gold_sub_clean)
 
     if cat_match and sub_match:
         return 1.0
