@@ -29,11 +29,16 @@ from scenarios import SCENARIOS
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Use Hugging Face Serverless Inference API by default for HF Spaces
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+# Default to Gemini (OpenAI-compatible) to avoid HF credit limits
+DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
 
+API_BASE_URL = os.environ.get("API_BASE_URL", DEFAULT_GEMINI_URL)
+MODEL_NAME = os.environ.get("MODEL_NAME", DEFAULT_GEMINI_MODEL)
+API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
+
+# Note: For Gemini to work on this URL, use the Gemini API Key.
+# For HF to work, use the HF_TOKEN.
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
 
 SYSTEM_PROMPT = """\
@@ -233,9 +238,9 @@ def run_task(
 def main() -> None:
     """Entry point: run all tasks and print aggregate results."""
     print("INFO: Entering main()", flush=True)
-    if not HF_TOKEN:
-        print("ERROR: HF_TOKEN environment variable is not set.", file=sys.stderr)
-        print("Please add your Hugging Face token as a 'Secret' in your Space settings.", file=sys.stderr)
+    if not API_KEY:
+        print("ERROR: Neither GEMINI_API_KEY nor HF_TOKEN is set.", file=sys.stderr)
+        print("Please add your API key as a 'Secret' in your Space settings.", file=sys.stderr)
         # Keep the process alive so the user can see the logs in HF Spaces
         import time
         while True:
@@ -243,7 +248,7 @@ def main() -> None:
 
     client = OpenAI(
         base_url=API_BASE_URL,
-        api_key=HF_TOKEN,
+        api_key=API_KEY,
     )
 
     results: list[dict[str, Any]] = []
