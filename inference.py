@@ -35,9 +35,9 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Use Gemini 2.0 Flash as the high-performance stable default
+# Use Gemini 2.0 Flash (verified available in diagnostic)
 API_BASE_URL = os.environ.get("API_BASE_URL", "google-gemini")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.0-flash-exp")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.0-flash")
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
 
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
@@ -208,9 +208,9 @@ def run_task(
                     print(f"  ⚠ Rate limited (429). Sleeping for {wait_time}s (Attempt {attempt+1}/3)...")
                     time.sleep(wait_time)
                 elif "404" in err_str or "not_found" in err_str:
-                    # Comprehensive fallback for model naming issues
-                    fallbacks = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
-                    print(f"  ⚠ 404 error for {MODEL_NAME}. Trying dynamic fallbacks...")
+                    # Specific fallbacks identified in diagnostic
+                    fallbacks = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash-001", "gemini-1.5-flash"]
+                    print(f"  ⚠ 404 error for {MODEL_NAME}. Trying diagnostic fallbacks...")
                     success = False
                     for alt_model in fallbacks:
                         if alt_model == MODEL_NAME: continue
@@ -267,20 +267,6 @@ def main() -> None:
     print("INFO: Entering main()", flush=True)
     if not API_KEY:
         print("ERROR: Neither GEMINI_API_KEY nor HF_TOKEN is set.", file=sys.stderr)
-        
-    # --- DIAGNOSTIC START ---
-    if "google" in API_BASE_URL or "gemini" in API_BASE_URL:
-        print("DIAGNOSTIC: Checking Gemini API Key access...", flush=True)
-        try:
-            from google import genai
-            diag_client = genai.Client(api_key=API_KEY)
-            models = list(diag_client.models.list())
-            model_names = [m.name for m in models]
-            print(f"DIAGNOSTIC: Successfully found {len(model_names)} models.")
-            print(f"DIAGNOSTIC: Available Model IDs: {model_names}")
-        except Exception as e:
-            print(f"DIAGNOSTIC: Failed to list models. Error: {e}")
-    # --- DIAGNOSTIC END ---
 
     if not API_KEY:
         # Keep the process alive so the user can see the logs in HF Spaces
