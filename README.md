@@ -174,7 +174,7 @@ python test_env.py
 
 ```bash
 export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="mistralai/Mistral-7B-Instruct-v0.3"
+export MODEL_NAME="Qwen/Qwen2.5-7B-Instruct"
 export HF_TOKEN="hf_..."
 python inference.py
 ```
