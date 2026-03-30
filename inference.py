@@ -43,48 +43,32 @@ API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
 
 SYSTEM_PROMPT = """\
-You are an expert, top-tier customer support AI. Efficiency and policy discipline are your HIGHEST priorities.
+You are an expert customer support AI. You MUST follow this strict 3-step workflow.
 
-You MUST output ONLY valid JSON.
+OUTPUT FORMAT:
+ONLY output a single JSON object. No extra text.
 
----
-STRICT FLOW RULES:
+PHASE 1: CLASSIFICATION
+Action: {"action_type": "classify", "payload": {"category": "...", "subcategory": "..."}}
+Rule: NEVER ask questions or solve in Step 1.
+Example: {"action_type": "classify", "payload": {"category": "billing", "subcategory": "unauthorized_charge"}}
 
-1. Phase: classification → ONLY "classify"
-2. Phase: clarification → ONLY "clarify"
-3. Phase: resolution → ONLY "resolve" | "escalate" | "close_ticket"
+PHASE 2: CLARIFICATION (If needed)
+Action: {"action_type": "clarify", "payload": {"questions": ["..."]}}
+Rule: Max 1 question. NEVER classify or resolve here.
+Example: {"action_type": "clarify", "payload": {"questions": ["What is the transaction ID?"]}}
 
-- NEVER repeat your previous action_type.
-- NEVER use "classify" after step 1.
-- NEVER use "clarify" during the resolution phase.
-- Violation of these rules will result in total system failure.
+PHASE 3: RESOLUTION
+Action: {"action_type": "resolve", "payload": {"steps": ["...", "..."], "message": "..."}}
+Rule: Provide 4-6 real-world technical steps. 
+Example: {"action_type": "resolve", "payload": {"steps": ["verify_id", "lookup_tx", "refund"], "message": "I have initiated the refund."}}
 
----
-PHASE STRATEGY:
-
-- EASY Tasks: Skip clarification. Move DIRECTLY from classify to resolve.
-- MEDIUM/HARD Tasks: Max 1 high-information-gain clarification, then resolve.
-- REGULATION: Use at most 3 total steps per ticket.
-
----
-RESOLUTION RULES:
-
-- Provide 4–6 concrete REAL-WORLD steps.
-- DO NOT use meta-steps (e.g., "classify", "clarify").
-- Use actions like: verify_identity, lookup_transaction, analyze_logs, initiate_refund.
-
----
-VALID CATEGORIES:
-
-account → password_reset
-billing → unauthorized_charge
-technical → data_migration
-
----
-CRITICAL:
-- Minimize API calls. 
-- Goal: Score > 0.85. 
-- No extra text.
+STRICT RULES:
+1. Step 1 MUST be "classify".
+2. After Step 1, NEVER use "classify".
+3. If info is missing, use AT MOST ONE "clarify".
+4. Otherwise, use "resolve".
+5. NO extra conversation. ONLY JSON.
 """
 
 
@@ -122,24 +106,25 @@ def _observation_to_prompt(obs: Observation) -> str:
 
 
 def _parse_action(raw: str) -> Action:
-    """Parse the LLM's raw text output into an Action."""
+    # Improve JSON extraction for smaller models
     text = raw.strip()
+    # Remove markdown code blocks
     if "```" in text:
-        parts = text.split("```")
-        for part in parts:
-            part = part.strip()
-            if part.startswith("json"):
-                part = part[4:].strip()
-            if part.startswith("{"):
-                text = part
-                break
-
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    
+    # Find the actual JSON object
     start = text.find("{")
     end = text.rfind("}") + 1
     if start == -1 or end == 0:
-        raise ValueError(f"No JSON object found in LLM response: {raw[:200]}")
-
-    data = json.loads(text[start:end])
+        raise ValueError(f"No JSON found: {raw[:100]}")
+    
+    json_str = text[start:end].strip()
+    # Basic cleanup for small model quirks (like trailing commas before closing braces)
+    json_str = json_str.replace(",\n}", "\n}").replace(",}", "}")
+    
+    data = json.loads(json_str)
     return Action(
         action_type=ActionType(data["action_type"]),
         payload=data.get("payload", {}),
@@ -194,8 +179,8 @@ def run_task(
                         assistant_msg = response_gen.text or ""
                     except Exception as sys_e:
                         if "instruction" in str(sys_e).lower():
-                            # Fallback: Prepend system prompt to user prompt
-                            combined_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+                            # Fallback: Prepend system prompt to user prompt with clear markers
+                            combined_prompt = f"### SYSTEM INSTRUCTIONS ###\n{SYSTEM_PROMPT}\n\n### CURRENT TICKET DATA ###\n{user_prompt}"
                             response_gen = client_gen.models.generate_content(
                                 model=MODEL_NAME,
                                 contents=combined_prompt,
