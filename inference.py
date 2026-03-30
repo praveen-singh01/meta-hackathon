@@ -13,16 +13,17 @@ from __future__ import annotations
 import os
 import sys
 import time
-
-print("INFO: Starting inference agent script...", flush=True)
-
 import json
-from typing import Any
+import re
+from typing import Any, List, Optional
+from pydantic import BaseModel
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+import uvicorn
 
 from openai import OpenAI
 
 from environment import CustomerSupportEnv
-from models import Action, ActionType, Observation
+from models import Action, ActionType, Observation, Reward
 from scenarios import SCENARIOS
 
 try:
@@ -30,6 +31,8 @@ try:
     HAS_GENAI = True
 except ImportError:
     HAS_GENAI = False
+
+print("INFO: Starting inference agent script...", flush=True)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -322,6 +325,59 @@ def main() -> None:
     while True:
         time.sleep(3600)
 
+# ---------------------------------------------------------------------------
+# FastAPI Server for OpenEnv Compatibility
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="OpenEnv Customer Support Agent")
+global_env = CustomerSupportEnv()
+
+class SolveRequest(BaseModel):
+    task_id: str
+
+@app.get("/")
+def read_root():
+    return {"status": "online", "model": MODEL_NAME}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/reset")
+def reset_env(request: SolveRequest):
+    try:
+        obs = global_env.reset(request.task_id)
+        return obs
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/step")
+def step_env(action: Action):
+    try:
+        obs, reward, done, info = global_env.step(action)
+        return {"observation": obs, "reward": reward, "done": done, "info": info}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/solve")
+def solve_task(request: SolveRequest, background_tasks: BackgroundTasks):
+    # Trigger the agent to solve the task and return logs
+    # Note: client needs to be initialized globally or passed appropriately
+    client = None
+    if not ("google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini"):
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    background_tasks.add_task(run_task, client, global_env, request.task_id)
+    return {"status": "started", "task_id": request.task_id}
+
+@app.get("/results")
+def get_results():
+    return {"results": "Detailed results available in Space logs."}
 
 if __name__ == "__main__":
-    main()
+    # If API_MODE is disabled or not set, run the simulation once as before
+    # But for Hugging Face Spaces, we MUST run the server.
+    if os.environ.get("RUN_MODE") == "CLI":
+        main()
+    else:
+        print("INFO: Starting FastAPI server on port 7860...", flush=True)
+        uvicorn.run(app, host="0.0.0.0", port=7860)

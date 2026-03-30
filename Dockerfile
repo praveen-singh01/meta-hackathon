@@ -15,5 +15,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY models.py scenarios.py environment.py graders.py rewards.py inference.py openenv.yaml ./
 
-# Default command runs the inference agent
+# Expose the default Hugging Face Space port
+EXPOSE 7860
+
+# Default command runs the FastAPI server
 CMD ["python", "inference.py"]
