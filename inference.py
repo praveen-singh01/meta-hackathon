@@ -25,20 +25,21 @@ from environment import CustomerSupportEnv
 from models import Action, ActionType, Observation
 from scenarios import SCENARIOS
 
+try:
+    import google.generativeai as genai
+    HAS_GENAI = True
+except ImportError:
+    HAS_GENAI = False
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Default to Gemini (OpenAI-compatible) to avoid HF credit limits
-DEFAULT_GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
-
-API_BASE_URL = os.environ.get("API_BASE_URL", DEFAULT_GEMINI_URL)
-MODEL_NAME = os.environ.get("MODEL_NAME", DEFAULT_GEMINI_MODEL)
+# Default to Gemini SDK to avoid HF credit limits and OpenAI-bridge issues
+API_BASE_URL = os.environ.get("API_BASE_URL", "google-gemini")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-1.5-flash")
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
 
-# Note: For Gemini to work on this URL, use the Gemini API Key.
-# For HF to work, use the HF_TOKEN.
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
 
 SYSTEM_PROMPT = """\
@@ -199,16 +200,34 @@ def run_task(
         messages.append({"role": "user", "content": user_prompt})
 
         print(f"  Step {obs.step_number + 1}: Querying LLM ({MODEL_NAME})...", flush=True)
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            temperature=0.0,
-            max_tokens=512,
-            timeout=45.0, # Add timeout to prevent indefinite hanging
-        )
-        assistant_msg = response.choices[0].message.content or ""
+        
+        if "google" in API_BASE_URL or API_BASE_URL == "gemini":
+            # Use Gemini SDK
+            if not HAS_GENAI:
+                raise ImportError("google-generativeai not installed.")
+            genai.configure(api_key=API_KEY)
+            model = genai.GenerativeModel(
+                model_name=MODEL_NAME,
+                system_instruction=SYSTEM_PROMPT
+            )
+            # Use the latest user prompt for Gemini's generate_content
+            response_gen = model.generate_content(
+                user_prompt,
+                generation_config={"temperature": 0.0}
+            )
+            assistant_msg = response_gen.text
+        else:
+            # Use OpenAI client
+            response_openai = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                temperature=0.0,
+                max_tokens=512,
+                timeout=45.0,
+            )
+            assistant_msg = response_openai.choices[0].message.content or ""
+            
         messages.append({"role": "assistant", "content": assistant_msg})
-
         print(f"\n  Step {obs.step_number + 1}: LLM → {assistant_msg[:120]}...")
 
         try:
@@ -246,10 +265,13 @@ def main() -> None:
         while True:
             time.sleep(3600)
 
-    client = OpenAI(
-        base_url=API_BASE_URL,
-        api_key=API_KEY,
-    )
+    client = None
+    if not ("google" in API_BASE_URL or API_BASE_URL == "gemini"):
+        from openai import OpenAI
+        client = OpenAI(
+            base_url=API_BASE_URL,
+            api_key=API_KEY,
+        )
 
     results: list[dict[str, Any]] = []
     task_ids = list(SCENARIOS.keys())
