@@ -15,9 +15,13 @@ dependencies = [
     "pyyaml>=6.0",
     "google-genai>=0.1.0",
     "fastapi>=0.100.0",
-    "uvicorn>=0.20.0"
+    "uvicorn>=0.20.0",
+    "openenv-core>=0.2.0"
 ]
 requires-python = ">=3.11"
+
+[project.scripts]
+server = "server.app:main"
 
 [project.optional-dependencies]
 dev = [

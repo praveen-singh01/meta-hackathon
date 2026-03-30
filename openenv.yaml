@@ -57,7 +57,7 @@ tasks:
       - graders.flow_grader
 
 inference:
-  entrypoint: inference.py
+  entrypoint: server/app.py
   env_vars:
     - API_BASE_URL
     - MODEL_NAME
