@@ -173,7 +173,7 @@ python test_env.py
 ### LLM Inference
 
 ```bash
-export API_BASE_URL="https://api-inference.huggingface.co/v1"
+export API_BASE_URL="https://router.huggingface.co/v1"
 export MODEL_NAME="meta-llama/Llama-3-8B-Instruct"
 export HF_TOKEN="hf_..."
 python inference.py
