@@ -1,3 +1,12 @@
+---
+title: Customer Support OpenEnv
+emoji: 🎧
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # Customer Support Simulation — OpenEnv Environment
 
 > **An AI agent that doesn't just solve problems — it manages human emotions under pressure.**
