@@ -1,0 +1,64 @@
+name: customer-support-simulation
+description: >
+  OpenEnv-compatible reinforcement learning environment that simulates
+  a real-world customer support system.  An AI agent classifies tickets,
+  asks clarifying questions, and resolves customer issues.
+author: hackathon-team
+version: "1.0.0"
+
+environment:
+  entrypoint: environment.py
+  class: CustomerSupportEnv
+  interface:
+    - reset(task_id) -> Observation
+    - step(action)   -> (Observation, Reward, done, info)
+    - state()        -> Observation
+
+models:
+  observation: models.Observation
+  action: models.Action
+  reward: models.Reward
+
+tasks:
+  - id: easy_password_reset
+    difficulty: easy
+    description: >
+      Customer cannot log in and needs a password reset.
+      Straightforward classification and resolution.
+    max_steps: 6
+    graders:
+      - graders.classification_grader
+      - graders.resolution_grader
+      - graders.flow_grader
+
+  - id: medium_billing_dispute
+    difficulty: medium
+    description: >
+      Customer reports an unexpected charge.  Agent must ask
+      clarifying questions before determining whether to refund
+      or explain the charge.
+    max_steps: 8
+    graders:
+      - graders.classification_grader
+      - graders.resolution_grader
+      - graders.flow_grader
+
+  - id: hard_data_migration
+    difficulty: hard
+    description: >
+      Enterprise customer's bulk data migration failed mid-way.
+      Agent must diagnose error codes, gather details about data
+      format and deduplication preferences, then orchestrate an
+      incremental import and validate record counts.
+    max_steps: 12
+    graders:
+      - graders.classification_grader
+      - graders.resolution_grader
+      - graders.flow_grader
+
+inference:
+  entrypoint: inference.py
+  env_vars:
+    - API_BASE_URL
+    - MODEL_NAME
+    - HF_TOKEN
