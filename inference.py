@@ -10,9 +10,13 @@ The agent manages customer sentiment in addition to resolving tickets.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
+import time
+
+print("INFO: Starting inference agent script...", flush=True)
+
+import json
 from typing import Any
 
 from openai import OpenAI
@@ -27,8 +31,10 @@ from scenarios import SCENARIOS
 
 # Use Hugging Face Serverless Inference API by default for HF Spaces
 API_BASE_URL = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.environ.get("MODEL_NAME", "mistralai/Mistral-7B-Instruct-v0.3")
+MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
+
+print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
 
 SYSTEM_PROMPT = """\
 You are a highly empathetic customer support agent in a simulation environment.
@@ -146,11 +152,13 @@ def run_task(
         user_prompt = _observation_to_prompt(obs)
         messages.append({"role": "user", "content": user_prompt})
 
+        print(f"  Step {obs.step_number + 1}: Querying LLM ({MODEL_NAME})...", flush=True)
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=messages,
             temperature=0.0,
             max_tokens=512,
+            timeout=45.0, # Add timeout to prevent indefinite hanging
         )
         assistant_msg = response.choices[0].message.content or ""
         messages.append({"role": "assistant", "content": assistant_msg})
@@ -183,6 +191,7 @@ def run_task(
 
 def main() -> None:
     """Entry point: run all tasks and print aggregate results."""
+    print("INFO: Entering main()", flush=True)
     if not HF_TOKEN:
         print("ERROR: HF_TOKEN environment variable is not set.", file=sys.stderr)
         print("Please add your Hugging Face token as a 'Secret' in your Space settings.", file=sys.stderr)
