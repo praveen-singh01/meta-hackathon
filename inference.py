@@ -333,7 +333,7 @@ app = FastAPI(title="OpenEnv Customer Support Agent")
 global_env = CustomerSupportEnv()
 
 class SolveRequest(BaseModel):
-    task_id: str
+    task_id: Optional[str] = None
 
 @app.get("/")
 def read_root():
@@ -344,9 +344,10 @@ def health():
     return {"status": "ok"}
 
 @app.post("/reset")
-def reset_env(request: SolveRequest):
+def reset_env(request: Optional[SolveRequest] = None, task_id: Optional[str] = None):
     try:
-        obs = global_env.reset(request.task_id)
+        t_id = task_id or (request.task_id if request else None) or "easy_password_reset"
+        obs = global_env.reset(t_id)
         return obs
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -360,14 +361,14 @@ def step_env(action: Action):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/solve")
-def solve_task(request: SolveRequest, background_tasks: BackgroundTasks):
+def solve_task(request: Optional[SolveRequest] = None, task_id: Optional[str] = None, background_tasks: BackgroundTasks = None):
+    t_id = task_id or (request.task_id if request else None) or "easy_password_reset"
     # Trigger the agent to solve the task and return logs
-    # Note: client needs to be initialized globally or passed appropriately
-    client = None
+    client_local = None
     if not ("google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini"):
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    background_tasks.add_task(run_task, client, global_env, request.task_id)
-    return {"status": "started", "task_id": request.task_id}
+        client_local = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    background_tasks.add_task(run_task, client_local, global_env, t_id)
+    return {"status": "started", "task_id": t_id}
 
 @app.get("/results")
 def get_results():
