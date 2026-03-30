@@ -5,6 +5,9 @@ LABEL description="Customer Support Simulation – OpenEnv Environment"
 
 WORKDIR /app
 
+# Ensure logs are delivered instantly
+ENV PYTHONUNBUFFERED=1
+
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
