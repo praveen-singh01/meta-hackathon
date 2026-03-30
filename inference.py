@@ -35,9 +35,9 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Use Gemini 1.5 Flash as the stable hardened default
+# Use Gemini 2.0 Flash as the high-performance stable default
 API_BASE_URL = os.environ.get("API_BASE_URL", "google-gemini")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-1.5-flash")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.0-flash-exp")
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
 
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
@@ -208,20 +208,27 @@ def run_task(
                     print(f"  ⚠ Rate limited (429). Sleeping for {wait_time}s (Attempt {attempt+1}/3)...")
                     time.sleep(wait_time)
                 elif "404" in err_str or "not_found" in err_str:
-                    # Quick one-time fallback for common naming issues
-                    alt_model = "gemini-1.5-flash-latest" if MODEL_NAME != "gemini-1.5-flash-latest" else "gemini-1.5-flash"
-                    print(f"  ⚠ 404 error. Attempting quick fallback to {alt_model}...")
-                    try:
-                        if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
-                            response_gen = client_gen.models.generate_content(
-                                model=alt_model,
-                                contents=user_prompt,
-                                config=genai.types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.0)
-                            )
-                            assistant_msg = response_gen.text
-                        break
-                    except:
-                        raise e
+                    # Comprehensive fallback for model naming issues
+                    fallbacks = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
+                    print(f"  ⚠ 404 error for {MODEL_NAME}. Trying dynamic fallbacks...")
+                    success = False
+                    for alt_model in fallbacks:
+                        if alt_model == MODEL_NAME: continue
+                        print(f"  Attempting fallback to: {alt_model}...")
+                        try:
+                            if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
+                                response_gen = client_gen.models.generate_content(
+                                    model=alt_model,
+                                    contents=user_prompt,
+                                    config=genai.types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.0)
+                                )
+                                assistant_msg = response_gen.text
+                                success = True
+                                break
+                        except:
+                            continue
+                    if success: break
+                    raise e
                 else:
                     raise e
         
