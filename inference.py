@@ -35,7 +35,7 @@ except ImportError:
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Default to Gemini SDK to avoid HF credit limits and OpenAI-bridge issues
+# Use Gemini 1.5 Flash as the stable hardened default
 API_BASE_URL = os.environ.get("API_BASE_URL", "google-gemini")
 MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-1.5-flash")
 API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
@@ -43,75 +43,48 @@ API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("HF_TOKEN", "")
 print(f"INFO: Configured with API_BASE_URL={API_BASE_URL}, MODEL_NAME={MODEL_NAME}", flush=True)
 
 SYSTEM_PROMPT = """\
-You are a deterministic support agent operating in a strict multi-step workflow.
+You are an expert, top-tier customer support AI. Efficiency and policy discipline are your HIGHEST priorities.
 
-You MUST follow the exact phase rules. Deviating will result in failure.
-
----
-
-PHASE RULES:
-
-Step 1 = CLASSIFICATION PHASE
-- ONLY output:
-  {
-    "action_type": "classify",
-    "payload": {
-      "category": "...",
-      "subcategory": "..."
-    }
-  }
-- DO NOT ask questions
-- DO NOT provide solutions
-- DO NOT include explanations
+You MUST output ONLY valid JSON.
 
 ---
+STRICT FLOW RULES:
 
-Step 2 = CLARIFICATION PHASE (only if needed)
-- ONLY output:
-  {
-    "action_type": "clarify",
-    "payload": {
-      "questions": ["..."]
-    }
-  }
-- Ask MAX 2 highly relevant questions
-- If enough info exists → SKIP to resolve
+1. Phase: classification → ONLY "classify"
+2. Phase: clarification → ONLY "clarify"
+3. Phase: resolution → ONLY "resolve" | "escalate" | "close_ticket"
 
----
-
-Step 3 = RESOLUTION PHASE
-- ONLY output:
-  {
-    "action_type": "resolve",
-    "payload": {
-      "steps": ["step1", "step2", ...],
-      "message": "clear and empathetic response"
-    }
-  }
+- NEVER repeat your previous action_type.
+- NEVER use "classify" after step 1.
+- NEVER use "clarify" during the resolution phase.
+- Violation of these rules will result in total system failure.
 
 ---
+PHASE STRATEGY:
 
-CRITICAL RULES:
-
-1. NEVER use "clarify" in Step 1
-2. NEVER repeat clarification questions
-3. NEVER ask generic questions like:
-   - "Can you provide more details?"
-4. ALWAYS move to resolve as early as possible
-5. Minimize number of steps
+- EASY Tasks: Skip clarification. Move DIRECTLY from classify to resolve.
+- MEDIUM/HARD Tasks: Max 1 high-information-gain clarification, then resolve.
+- REGULATION: Use at most 3 total steps per ticket.
 
 ---
+RESOLUTION RULES:
 
-CLASSIFICATION GUIDE:
-
-account → password_reset, login_issue  
-billing → unauthorized_charge, refund_request  
-technical → data_migration, system_error  
+- Provide 4–6 concrete REAL-WORLD steps.
+- DO NOT use meta-steps (e.g., "classify", "clarify").
+- Use actions like: verify_identity, lookup_transaction, analyze_logs, initiate_refund.
 
 ---
+VALID CATEGORIES:
 
-Your output MUST be valid JSON.
-No extra text. No explanations.
+account → password_reset
+billing → unauthorized_charge
+technical → data_migration
+
+---
+CRITICAL:
+- Minimize API calls. 
+- Goal: Score > 0.85. 
+- No extra text.
 """
 
 
@@ -201,84 +174,59 @@ def run_task(
 
         print(f"  Step {obs.step_number + 1}: Querying LLM ({MODEL_NAME})...", flush=True)
         
-        if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
-            # Use New Gemini SDK (google-genai)
-            if not HAS_GENAI:
-                raise ImportError("google-genai not installed.")
-            client_gen = genai.Client(api_key=API_KEY)
-            
+        # V6 Hardened Query Logic with Retry & Rate-Limit Handling
+        assistant_msg = ""
+        for attempt in range(3):
             try:
-                response_gen = client_gen.models.generate_content(
-                    model=MODEL_NAME,
-                    contents=user_prompt,
-                    config=genai.types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        temperature=0.0
+                if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
+                    if not HAS_GENAI:
+                        raise ImportError("google-genai not installed.")
+                    client_gen = genai.Client(api_key=API_KEY)
+                    response_gen = client_gen.models.generate_content(
+                        model=MODEL_NAME,
+                        contents=user_prompt,
+                        config=genai.types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            temperature=0.0
+                        )
                     )
-                )
-                assistant_msg = response_gen.text
+                    assistant_msg = response_gen.text
+                else:
+                    response_openai = client.chat.completions.create(
+                        model=MODEL_NAME,
+                        messages=messages,
+                        temperature=0.0,
+                        max_tokens=512,
+                        timeout=45.0,
+                    )
+                    assistant_msg = response_openai.choices[0].message.content or ""
+                break # Success
             except Exception as e:
                 err_str = str(e).lower()
-                if "404" in err_str or "not_found" in err_str:
-                    print(f"  ⚠ Model {MODEL_NAME} not found. Discovering available models...")
+                if "429" in err_str or "quota" in err_str or "limit" in err_str:
+                    wait_time = 20
+                    print(f"  ⚠ Rate limited (429). Sleeping for {wait_time}s (Attempt {attempt+1}/3)...")
+                    time.sleep(wait_time)
+                elif "404" in err_str or "not_found" in err_str:
+                    # Quick one-time fallback for common naming issues
+                    alt_model = "gemini-1.5-flash-latest" if MODEL_NAME != "gemini-1.5-flash-latest" else "gemini-1.5-flash"
+                    print(f"  ⚠ 404 error. Attempting quick fallback to {alt_model}...")
                     try:
-                        available_models = list(client_gen.models.list())
-                        model_names = [m.name for m in available_models]
-                        print(f"  INFO: Available models: {model_names}")
-                        
-                        # Find best fallback: 1.5-flash, then any flash, then anything
-                        fallback = None
-                        # Check names like 'models/gemini-1.5-flash'
-                        for name in model_names:
-                            clean_name = name.split('/')[-1]
-                            if "1.5" in clean_name and "flash" in clean_name:
-                                fallback = clean_name
-                                break
-                        if not fallback:
-                            for name in model_names:
-                                clean_name = name.split('/')[-1]
-                                if "flash" in clean_name:
-                                    fallback = clean_name
-                                    break
-                        
-                        if fallback and fallback != MODEL_NAME:
-                            print(f"  Attempting fallback to Discoverd Model: {fallback}")
+                        if "google" in API_BASE_URL or API_BASE_URL == "gemini" or API_BASE_URL == "google-gemini":
                             response_gen = client_gen.models.generate_content(
-                                model=fallback,
+                                model=alt_model,
                                 contents=user_prompt,
-                                config=genai.types.GenerateContentConfig(
-                                    system_instruction=SYSTEM_PROMPT,
-                                    temperature=0.0
-                                )
+                                config=genai.types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, temperature=0.0)
                             )
                             assistant_msg = response_gen.text
-                        else:
-                            # Try one last hardcoded guess if listing failed or didn't help
-                            print("  Attempting last-resort fallback to gemini-1.5-flash-8b...")
-                            response_gen = client_gen.models.generate_content(
-                                model="gemini-1.5-flash-8b",
-                                contents=user_prompt,
-                                config=genai.types.GenerateContentConfig(
-                                    system_instruction=SYSTEM_PROMPT,
-                                    temperature=0.0
-                                )
-                            )
-                            assistant_msg = response_gen.text
-                    except Exception as inner_e:
-                        print(f"  ❌ Fallback discovery failed: {inner_e}")
+                        break
+                    except:
                         raise e
                 else:
                     raise e
-        else:
-            # Use OpenAI client
-            response_openai = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=512,
-                timeout=45.0,
-            )
-            assistant_msg = response_openai.choices[0].message.content or ""
+        
+        # Preservation sleep to stay under 5 RPM limit
+        time.sleep(2)
             
         messages.append({"role": "assistant", "content": assistant_msg})
         print(f"\n  Step {obs.step_number + 1}: LLM → {assistant_msg[:120]}...")
