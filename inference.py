@@ -267,7 +267,22 @@ def main() -> None:
     print("INFO: Entering main()", flush=True)
     if not API_KEY:
         print("ERROR: Neither GEMINI_API_KEY nor HF_TOKEN is set.", file=sys.stderr)
-        print("Please add your API key as a 'Secret' in your Space settings.", file=sys.stderr)
+        
+    # --- DIAGNOSTIC START ---
+    if "google" in API_BASE_URL or "gemini" in API_BASE_URL:
+        print("DIAGNOSTIC: Checking Gemini API Key access...", flush=True)
+        try:
+            from google import genai
+            diag_client = genai.Client(api_key=API_KEY)
+            models = list(diag_client.models.list())
+            model_names = [m.name for m in models]
+            print(f"DIAGNOSTIC: Successfully found {len(model_names)} models.")
+            print(f"DIAGNOSTIC: Available Model IDs: {model_names}")
+        except Exception as e:
+            print(f"DIAGNOSTIC: Failed to list models. Error: {e}")
+    # --- DIAGNOSTIC END ---
+
+    if not API_KEY:
         # Keep the process alive so the user can see the logs in HF Spaces
         import time
         while True:
